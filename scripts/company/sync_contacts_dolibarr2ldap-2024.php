@@ -88,7 +88,70 @@ if (!$confirmed)
     $input = trim(fgets(STDIN));
 }
 
+/*
+ * if(!getDolGlobalString('LDAP_CONTACT_ACTIVE'))
+ * {
+ *      print $langs->trans("LDAPSynchronizationNotSetupInDolibarr");
+ *      exit(1);
+ * }
+ */
 
+$sql = "SELECT rowid";
+$sql .= " FROM ".MAIN_DB_PREFIX."socpeople";
 
+$resql = $db->query($sql);
+if ($resql)
+{
+    $num = $db->num_rows($resql);
+    $i = 0;
+
+    $ldap = new Ldap();
+    $ldap->connectBind();
+
+    while ($i < $num)
+    {
+        $ladp->error = "";
+
+        $obj = $db->fetch_object($resql);
+
+        $contact = new Contact($db);
+        $contact->id = $obj->rowid;
+        $contact->fetch($contact->id);
+        
+        print $langs->trans("UpdateContact")." rowid=".$contact->id." ".$contact->getFullName($langs);
+
+        $oldobject = $contact;
+
+        $oldinfo = $oldobject->_load_ldap_info();
+        $olddn = $oldobject->_load_ldap_dn($oldinfo);
+
+        $info = $contact->_load_ldap_info();
+        $dn = $contact->_load_ldap_dn($info);
+
+        $result = $ldap->add($dn, $info, $user); //Will not work if already exists
+        $result = $ldap->update($dn, $info, $user, $olddn);
+
+        if ($result > 0)
+        {
+            print " - ".$langs->trans("OK");
+        }
+        else
+        {
+            $error++;
+            print " - ".$langs->trans("KO").' - '.$ldap->error;
+        }
+        print "\n";
+
+        $i++;
+    }
+
+    $ldap->unbind();
+}
+else
+{
+    dol_print_error($db);
+}
+
+exit($error);
 
 ?>
