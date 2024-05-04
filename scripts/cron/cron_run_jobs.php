@@ -188,7 +188,7 @@
         exit(1);
     }
 
-    /** TODO duplicate code. This sequence of code must be shared with code into
+    /** TODO DUPLICATE CODE. THIS SEQUENCE OF CODE MUST BE SHARED WITH CODE INTO
      ** public/cron/cron_run_jobs.php php page.
     */
 
@@ -200,7 +200,7 @@
     {
         $savconf = dol_clone($conf);
 
-        //Loop over job
+        //LOOP OVER JOB
         foreach($object->lines as $line)
         {
             dol_syslog("cron_run_jobs.php cronjobid: ".$line->id." priority= ".$line->priority." entity= ".$line->entity." label=".$line->label, LOG_DEBUG);
@@ -268,14 +268,101 @@
                 continue;
             }
 
-            
+            //IF data_next_jobs IS LESS OF CURRENT DATE, EXECUTE THE PROGRAM, AND STORE THE EXECUTION TIME OF THE NEXT EXECUTION IN DATABASE
+            if ($forcequalified || (($line->datenextrun < $now) && (empty($line->datestart) || $line->datestart <= $now) && (empty($line-dateend) || ($line->dateend >= $now))))
+            {
+                echo " - qualified";
+
+                dol_syslog("cron_run_jobs.php line->datenextrun: ".dol_print_date($line->datenextrun, 'dayhourrfc')." line->datestart: ".dol_print_date($line->datestart, 'dayhourrfc')." line->dateend: ".dol_print_date($line->dateend, 'dayhourrfc')." now: ".dol_print_date($now, 'dayhourrfc'));
+
+                $cronhob = new Cronjob($db);
+
+                $result = $cronjob->fetch($line->id);
+
+                if ($result < 0)
+                {
+                    echo " - Error cronjobid: ".$line->id." cronjob->fetch: "$cronjob->error."\n";
+                    echo "Failed to fetch job ".$line->id."\n";
+                    dol_syslog("cron_run_jobs.php::fetch Error ".$cronjob->error, LOG_ERR);
+                    exit(1);
+                }
+
+
+                //EXECUTE JOB
+                $result = $cronjob->run_jobs($userlogin);
+
+                if ($result < 0)
+                {
+                    echo " - Error cronjobid: ".$line->id." cronjob->run_job: ".$cronjob->error."\n";
+
+                    echo "At least one job failed. Go on menu Home-Setup-Admin tools to see result for each job.\n";
+                    echo "You can also enable module LOG if not yet enabled, run again and take a look into dolibarr.log file.\n";
+
+                    dol_syslog("cron_run_jobs.php::run_jobs Error ".$cronjob->error, LOG_ERR);
+                    $nbofjobslaunchedko++;
+                    $resultstring = 'KO.';
+                }
+                else
+                {
+                    $nbofjobslaunchedok++;
+                    $resultstring = 'OK.';
+                }
+
+                echo " - run_jobs ".$resultstring." result = ".$result;
+
+                //RE-PROGRAM THE NEXT EXECUTION AND STORES THE LAST EXECUTION TIME FOR THIS JOB.
+                $result = $cronjob->reprogram_jobs($userlogin, $now);
+                if ($result < 0)
+                {
+                    echo " - Error cronjobid: ".$line->id." cronjob->reprogram_jobs: ".$cronjob->error.".\n";
+                    echo "Enable module LOG if not yet enabled, run again and take a look into dolibarr.log file.\n";
+                    dol_syslog("cron_run_jobs.php::reprogram_jobs Error ".$cronjob->error, LOG_ERR);
+                    exit(1);
+                }
+
+                echo " - reprogrammed.\n";
+            }
+            else
+            {
+                echo " - not qualified.\n";
+
+                dol_syslog("cron_run_jobs.php job not qualified line->datenextrun: ".dol_print_date($line->datenextrun, 'dayhourrfc')." line->datestart: ".dol_print_date($line->datestart, 'dayhourrfc')." line->dateend: ".dol_print_date($line->dateend, 'dayhourrfc')." now: ".dol_print_date($now, 'dayhourrfc'));
+            }
         }
+
+        $conf = $savconf;
     }
     else
     {
         echo "cron_run_jobs.php, no qualified job found.\n";
-        # code...
     }
     
+    $db->close();
+
+    if ($nbofjobslaunchedko)
+    {
+        exit(1);
+    }
+    exit(0);
+
+    /**
+     * SCRIPT CRON USAGE
+     * 
+     * @param string $path          PATH
+     * @param string $script_file   Filename
+     * @return void
+     */
+
+    function usage($path, $script_file)
+    {
+        print "Usage: ".$script_file." securitykey userlogin|'firstadmin' [cronjobid] [--force]\n";
+        print "The script return 0 when everything worked successfully.\n";
+        print "\nOn Linux system, you can have cron jobs ran automatically by adding an entry into cron.\n";
+        print "For example, to run pending tasks each day at 3:30, you can add this line:\n";
+        print "30 3 * * * ".$path.$script_file." securitykey userlogin > ".DOL_DATA_ROOT."/".$script_file.".log.\n";
+        print "For example, to run pending tasks every 5m, you can add this line:\n";
+        print "*/5 * * * * ".$path.$script_file." securitykey userlogin > ".DOL_DATA_ROOT."/".$script_file.".log.\n";
+        print "\nThe option --force allow to bypass the check on date of execution so job will be executed even if date is not yet reached.\n";
+    }
 
 ?>
